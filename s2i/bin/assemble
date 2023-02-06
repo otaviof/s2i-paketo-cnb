@@ -1,0 +1,70 @@
+#!/bin/bash
+
+set -x
+
+set -eu -o pipefail
+shopt -s inherit_errexit
+
+function print_phase() {
+    echo "---> Phase: ${*}..."
+}
+
+function fail() {
+    echo "ERROR: ${*}" 2>&1
+}
+
+readonly ARG=${*:-}
+
+if [[ "${ARG}" == "-h" ]]; then
+    exec /usr/libexec/s2i/usage
+fi
+
+readonly S2I_SRC_DIR=${S2I_SRC_DIR:-}
+
+if [[ -z "${S2I_SRC_DIR}" ]]; then
+    fail "S2I source directory (S2I_SRC_DIR) is not defined!"
+fi
+
+readonly S2I_IMAGE_TAG=${S2I_IMAGE_TAG:-}
+
+if [[ -z "${S2I_IMAGE_TAG}" ]]; then
+    fail "S2I target image-tag (S2I_IMAGE_TAG) is not defined!"
+fi
+
+readonly S2I_ARTIFACTS_DIR=${S2I_ARTIFACTS_DIR:-}
+
+if [[ -z "${S2I_ARTIFACTS_DIR}" ]]; then
+    fail "S2I artifact directory (S2I_ARTIFACTS_DIR) is not defined!"
+fi
+
+readonly METADATA_DIR="${S2I_ARTIFACTS_DIR}/metadata"
+
+export CNB_APP_DIR="${HOME}"
+
+export CNB_ANALYZED_PATH="${METADATA_DIR}"
+export CNB_CACHE_DIR="${S2I_ARTIFACTS_DIR}/cache"
+export CNB_LAYERS_DIR="${S2I_ARTIFACTS_DIR}/layers"
+export CNB_REPORT_PATH="${METADATA_DIR}"
+
+mkdir -p ${CNB_CACHE_DIR}
+mkdir -p ${CNB_LAYERS_DIR}
+
+print_phase "Source files at ${CNB_APP_DIR}"
+cp -vfR ${S2I_SRC_DIR}/* ${CNB_APP_DIR} && ls -l ${CNB_APP_DIR}
+
+print_phase "Detector"
+/cnb/lifecycle/detector
+
+print_phase "Analyzer"
+/cnb/lifecycle/analyzer "${S2I_IMAGE_TAG}"
+
+print_phase "Restorer"
+/cnb/lifecycle/restorer
+
+print_phase "Builder"
+/cnb/lifecycle/builder
+
+ls -l ${CNB_LAYERS_DIR}
+
+print_phase "Exporter"
+/cnb/lifecycle/exporter "${S2I_IMAGE_TAG}"
