@@ -1,70 +1,68 @@
 #!/bin/bash
+#
+# S2I assemble script to perform buildpacks' lificycle.
+#
 
-set -x
-
-set -eu -o pipefail
+set -xeu -o pipefail
 shopt -s inherit_errexit
 
-function print_phase() {
-    echo "---> Phase: ${*}..."
-}
+#
+# Parsing Script Arguments (Flags)
+#
 
-function fail() {
-    echo "ERROR: ${*}" 2>&1
-}
-
-readonly ARG=${*:-}
+readonly ARG=${1:-}
 
 if [[ "${ARG}" == "-h" ]]; then
     exec /usr/libexec/s2i/usage
 fi
 
-readonly S2I_SRC_DIR=${S2I_SRC_DIR:-}
+#
+# Buildpacks CNB Settings
+#
 
-if [[ -z "${S2I_SRC_DIR}" ]]; then
-    fail "S2I source directory (S2I_SRC_DIR) is not defined!"
+source /usr/libexec/s2i/common.sh
+
+if [[ -d "${S2I_ARTIFACTS_DIR}" ]]; then
+    print_phase "Restoring artifacts"
+    mv -v ${S2I_ARTIFACTS_DIR}/* ${CNB_BASE_DIR}/
 fi
 
-readonly S2I_IMAGE_TAG=${S2I_IMAGE_TAG:-}
+[[ ! -d "${METADATA_DIR}" ]] && mkdir -pv "${METADATA_DIR}"
+[[ ! -d "${CNB_CACHE_DIR}" ]] && mkdir -pv "${CNB_CACHE_DIR}"
+[[ ! -d "${CNB_LAYERS_DIR}" ]] && mkdir -pv "${CNB_LAYERS_DIR}"
 
-if [[ -z "${S2I_IMAGE_TAG}" ]]; then
-    fail "S2I target image-tag (S2I_IMAGE_TAG) is not defined!"
-fi
-
-readonly S2I_ARTIFACTS_DIR=${S2I_ARTIFACTS_DIR:-}
-
-if [[ -z "${S2I_ARTIFACTS_DIR}" ]]; then
-    fail "S2I artifact directory (S2I_ARTIFACTS_DIR) is not defined!"
-fi
-
-readonly METADATA_DIR="${S2I_ARTIFACTS_DIR}/metadata"
-
-export CNB_APP_DIR="${HOME}"
-
-export CNB_ANALYZED_PATH="${METADATA_DIR}"
-export CNB_CACHE_DIR="${S2I_ARTIFACTS_DIR}/cache"
-export CNB_LAYERS_DIR="${S2I_ARTIFACTS_DIR}/layers"
-export CNB_REPORT_PATH="${METADATA_DIR}"
-
-mkdir -p ${CNB_CACHE_DIR}
-mkdir -p ${CNB_LAYERS_DIR}
+#
+# Buildpacks Lifecycle
+#
 
 print_phase "Source files at ${CNB_APP_DIR}"
-cp -vfR ${S2I_SRC_DIR}/* ${CNB_APP_DIR} && ls -l ${CNB_APP_DIR}
+cp -vfR ${S2I_SRC_DIR}/* ${CNB_APP_DIR}
 
 print_phase "Detector"
-/cnb/lifecycle/detector
+/cnb/lifecycle/detector \
+    -app ${CNB_APP_DIR} \
+    -layers ${CNB_LAYERS_DIR}
 
 print_phase "Analyzer"
-/cnb/lifecycle/analyzer "${S2I_IMAGE_TAG}"
+/cnb/lifecycle/analyzer \
+    -analyzed ${CNB_ANALYZED_PATH} \
+    -layers ${CNB_LAYERS_DIR} \
+    "${S2I_IMAGE_TAG}"
 
 print_phase "Restorer"
-/cnb/lifecycle/restorer
+/cnb/lifecycle/restorer \
+    -layers ${CNB_LAYERS_DIR} \
+    -cache-dir ${CNB_CACHE_DIR}
 
 print_phase "Builder"
-/cnb/lifecycle/builder
+/cnb/lifecycle/builder \
+    -layers ${CNB_LAYERS_DIR}
 
-ls -l ${CNB_LAYERS_DIR}
-
-print_phase "Exporter"
-/cnb/lifecycle/exporter "${S2I_IMAGE_TAG}"
+# print_phase "Exporter"
+# /cnb/lifecycle/exporter \
+#     -app ${CNB_APP_DIR} \
+#     -analyzed ${CNB_ANALYZED_PATH} \
+#     -layers ${CNB_LAYERS_DIR} \
+#     -cache-dir ${CNB_CACHE_DIR} \
+#     -report ${CNB_REPORT_PATH} \
+#     "${S2I_IMAGE_TAG}"
